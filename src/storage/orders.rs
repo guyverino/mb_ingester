@@ -14,12 +14,29 @@ use postgres::Client;
 use rust_decimal::Decimal;
 
 pub fn upsert(client: &mut Client, server_id: i32, order: &Order) -> anyhow::Result<()> {
-    let row = OrderRow::from(server_id, order);
+    // Привязываем ордер к текущей последней версии стратегии. Если стратегии
+    // нет в БД или версий ещё нет — strategy_version_id остаётся NULL.
+    let strategy_version_id = lookup_current_version_id(client, server_id, order.strat_id)?;
+    let row = OrderRow::from(server_id, order, strategy_version_id);
 
-    // 86 параметров. Простой INSERT с ON CONFLICT DO UPDATE по всем колонкам
-    // (кроме PK и first_seen_at).
     client.execute(SQL, &row.as_params())?;
     Ok(())
+}
+
+fn lookup_current_version_id(
+    client: &mut Client,
+    server_id: i32,
+    moonbot_strategy_id: u64,
+) -> anyhow::Result<Option<i64>> {
+    let strat_id_dec = Decimal::from(moonbot_strategy_id);
+    let row = client.query_opt(
+        "SELECT sv.id FROM strategy_versions sv
+         JOIN strategies s ON sv.strategy_id = s.id
+         WHERE s.server_id = $1 AND s.moonbot_id = $2
+         ORDER BY sv.version_date DESC LIMIT 1",
+        &[&server_id, &strat_id_dec],
+    )?;
+    Ok(row.map(|r| r.get(0)))
 }
 
 /// Все поля плоско в одной структуре. Делает write-side легко читаемым:
@@ -130,10 +147,13 @@ struct OrderRow {
     use_take_profit: bool,
     take_profit: f64,
     take_profit_changed: bool,
+
+    // Link to strategy_versions
+    strategy_version_id: Option<i64>,
 }
 
 impl OrderRow {
-    fn from(server_id: i32, o: &Order) -> Self {
+    fn from(server_id: i32, o: &Order, strategy_version_id: Option<i64>) -> Self {
         let profit_btc = if o.sell_order.total_btc > 0.0 {
             o.sell_order.total_btc - o.buy_order.spent_btc
         } else {
@@ -237,10 +257,11 @@ impl OrderRow {
             use_take_profit: byte_to_bool(o.stops.use_take_profit),
             take_profit: o.stops.take_profit,
             take_profit_changed: byte_to_bool(o.stops.take_profit_changed),
+            strategy_version_id,
         }
     }
 
-    fn as_params(&self) -> [&(dyn postgres::types::ToSql + Sync); 90] {
+    fn as_params(&self) -> [&(dyn postgres::types::ToSql + Sync); 91] {
         [
             &self.server_id, &self.id, &self.coin, &self.currency, &self.platform,
             &self.strategy_id, &self.server_db_id,
@@ -272,6 +293,8 @@ impl OrderRow {
             &self.stop_loss_on, &self.sl_fixed, &self.sl_level, &self.sl_spread,
             &self.trailing_on, &self.trailing_fixed, &self.trailing_level, &self.ts_spread,
             &self.use_take_profit, &self.take_profit, &self.take_profit_changed,
+            // link
+            &self.strategy_version_id,
         ]
     }
 }
@@ -301,6 +324,7 @@ INSERT INTO orders (
     sell_is_closed, sell_canceled, sell_is_short,
     stop_loss_on, sl_fixed, sl_level, sl_spread, trailing_on, trailing_fixed,
     trailing_level, ts_spread, use_take_profit, take_profit, take_profit_changed,
+    strategy_version_id,
     updated_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
@@ -325,6 +349,7 @@ INSERT INTO orders (
     $77, $78, $79,
     $80, $81, $82, $83, $84, $85,
     $86, $87, $88, $89, $90,
+    $91,
     NOW()
 )
 ON CONFLICT (server_id, id) DO UPDATE SET
@@ -416,6 +441,7 @@ ON CONFLICT (server_id, id) DO UPDATE SET
     use_take_profit = EXCLUDED.use_take_profit,
     take_profit = EXCLUDED.take_profit,
     take_profit_changed = EXCLUDED.take_profit_changed,
+    strategy_version_id = COALESCE(EXCLUDED.strategy_version_id, orders.strategy_version_id),
     updated_at = NOW()
 "#;
 

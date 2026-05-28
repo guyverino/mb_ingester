@@ -132,6 +132,15 @@ fn handle_event(
                 "[{}] strategy schema applied: kinds={kind_count} fields={field_count}",
                 server.name
             );
+            // Перенесём свежую схему в таблицу `parameters` (auto-fillable поля).
+            if let Some(snap) = client.snapshot() {
+                if let Some(schema) = snap.strats().strategy_schema() {
+                    match storage::parameters::upsert_schema(sql, schema) {
+                        Ok(n) => tracing::debug!("[{}] parameters table refreshed: {n} fields", server.name),
+                        Err(e) => tracing::warn!("[{}] parameters upsert failed: {e:#}", server.name),
+                    }
+                }
+            }
         }
         Event::Strat(strat_evt) if server.modules.listener_strategies => {
             if let Some(snap) = client.snapshot() {
