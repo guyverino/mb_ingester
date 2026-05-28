@@ -13,7 +13,7 @@ use postgres::Client;
 use rust_decimal::Decimal;
 use serde_json::{Map, Value};
 
-use moonproto::commands::strategy_serializer::{FieldValue, StrategySnapshot};
+use moonproto::commands::strategy_serializer::{FieldValue, StrategyActiveMode, StrategySnapshot};
 
 pub fn upsert_snapshot(
     client: &mut Client,
@@ -22,20 +22,24 @@ pub fn upsert_snapshot(
 ) -> anyhow::Result<i32> {
     let name = extract_string(snap, "StrategyName").unwrap_or_default();
     let signal_type = extract_string(snap, "SignalType");
-    let active = extract_int(snap, "Active").unwrap_or(0) as i32;
+    // `checked` — raw UI checkbox state. `is_active` — Delphi-equivalent
+    // вычисление для нашего режима (UsingMoonProto). См. types.rs:355.
+    let checked = snap.checked;
+    let is_active = snap.is_active(StrategyActiveMode::UsingMoonProto);
 
     let moonbot_id = Decimal::from(snap.strategy_id);
 
     let row = client.query_one(
-        "INSERT INTO strategies (server_id, moonbot_id, name, signal_type, active, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, NOW()) \
+        "INSERT INTO strategies (server_id, moonbot_id, name, signal_type, checked, is_active, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, NOW()) \
          ON CONFLICT (server_id, moonbot_id) DO UPDATE SET \
             name        = EXCLUDED.name, \
             signal_type = COALESCE(EXCLUDED.signal_type, strategies.signal_type), \
-            active      = EXCLUDED.active, \
+            checked     = EXCLUDED.checked, \
+            is_active   = EXCLUDED.is_active, \
             updated_at  = NOW() \
          RETURNING id",
-        &[&server_id, &moonbot_id, &name, &signal_type, &active],
+        &[&server_id, &moonbot_id, &name, &signal_type, &checked, &is_active],
     )?;
     let strategy_id: i32 = row.get(0);
 
@@ -75,18 +79,6 @@ pub fn upsert_snapshot(
 fn extract_string(snap: &StrategySnapshot, name: &str) -> Option<String> {
     snap.fields.get(name).and_then(|v| match v {
         FieldValue::String(s) => Some(s.clone()),
-        _ => None,
-    })
-}
-
-fn extract_int(snap: &StrategySnapshot, name: &str) -> Option<i64> {
-    snap.fields.get(name).and_then(|v| match v {
-        FieldValue::Int32(x) => Some(*x as i64),
-        FieldValue::Int64(x) => Some(*x),
-        FieldValue::UInt32(x) => Some(*x as i64),
-        FieldValue::UInt64(x) => Some(*x as i64),
-        FieldValue::Byte(x) => Some(*x as i64),
-        FieldValue::Word(x) => Some(*x as i64),
         _ => None,
     })
 }
