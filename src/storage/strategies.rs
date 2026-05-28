@@ -13,29 +13,36 @@ use postgres::Client;
 use rust_decimal::Decimal;
 use serde_json::{Map, Value};
 
-use moonproto::commands::strategy_serializer::{FieldValue, StrategyActiveMode, StrategySnapshot};
+use moonproto::commands::strategy_serializer::{FieldValue, StrategySnapshot};
 
+/// `live_checked` ДОЛЖНО приходить из `StratsState::get(strategy_id).checked`,
+/// а не из `snap.checked`. StrategySnapshot.checked обновляется только при
+/// полных snapshot-апдейтах; checked-delta-сообщения от сервера обновляют
+/// lightweight StrategyInfo, который и отражает реальное состояние галочки.
 pub fn upsert_snapshot(
     client: &mut Client,
     server_id: i32,
     snap: &StrategySnapshot,
+    live_checked: bool,
 ) -> anyhow::Result<i32> {
     let name = extract_string(snap, "StrategyName").unwrap_or_default();
     let signal_type = extract_string(snap, "SignalType");
-    // Поля прямо из структуры:
-    let checked = snap.checked;
     let strategy_ver = snap.strategy_ver;
     let last_date_ms = snap.last_date as i64;
     let kind = snap.kind as i16;
     let path = snap.path.clone();
     // Convenience-методы (внутри читают snap.fields):
-    let is_active = snap.is_active(StrategyActiveMode::UsingMoonProto);
     let auto_buy = snap.auto_buy();
     let can_auto_buy = snap.can_auto_buy();
     let run_detect_on_kernel = snap.run_detect_on_kernel();
     let sell_from_asset = snap.sell_from_asset();
     let short = snap.is_short();
     let sell_price_field = snap.sell_price_field();
+    // is_active для StrategyActiveMode::UsingMoonProto (см. types.rs:355):
+    //   checked && (can_auto_buy || run_detect_on_kernel).
+    // Считаем сами потому что snap.is_active() использует stale snap.checked.
+    let checked = live_checked;
+    let is_active = live_checked && (can_auto_buy || run_detect_on_kernel);
 
     let moonbot_id = Decimal::from(snap.strategy_id);
 

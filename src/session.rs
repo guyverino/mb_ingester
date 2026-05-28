@@ -84,9 +84,13 @@ fn initial_sync(
 
     if server.modules.listener_strategies {
         let strats = snap.strategy_snapshot_vec();
+        let strats_state = snap.strats();
         let mut ok = 0usize;
         for s in &strats {
-            match storage::strategies::upsert_snapshot(sql, server.id, s) {
+            // Берём live checked из StrategyInfo (синхронизируется через
+            // checked-delta). snap.checked может быть stale.
+            let live_checked = strats_state.get(s.strategy_id).map(|i| i.checked).unwrap_or(false);
+            match storage::strategies::upsert_snapshot(sql, server.id, s, live_checked) {
                 Ok(_) => ok += 1,
                 Err(e) => tracing::warn!("[{}] strategies upsert failed: {e:#}", server.name),
             }
@@ -132,8 +136,10 @@ fn handle_event(
         Event::Strat(strat_evt) if server.modules.listener_strategies => {
             if let Some(snap) = client.snapshot() {
                 let strats = snap.strategy_snapshot_vec();
+                let strats_state = snap.strats();
                 for s in &strats {
-                    storage::strategies::upsert_snapshot(sql, server.id, s)?;
+                    let live_checked = strats_state.get(s.strategy_id).map(|i| i.checked).unwrap_or(false);
+                    storage::strategies::upsert_snapshot(sql, server.id, s, live_checked)?;
                 }
                 tracing::debug!(
                     "[{}] strat event: {:?} → re-upserted {} strategies",
