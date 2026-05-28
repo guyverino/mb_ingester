@@ -39,7 +39,7 @@ pub fn run_session(server: &DbServer, db_url: &str) -> anyhow::Result<()> {
     };
 
     tracing::info!(
-        server = %server.name, host = %host, port,
+        server = %server.name,
         modules = ?server.modules,
         "connecting to MoonBot via MoonProto"
     );

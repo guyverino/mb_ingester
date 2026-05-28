@@ -39,8 +39,8 @@ fn main() -> anyhow::Result<()> {
     tracing::info!("loaded {} ingestable servers from DB", servers.len());
     for s in &servers {
         tracing::info!(
-            "  · #{} {} → {}:{}  modules={{strategies={}, orders={}}}",
-            s.id, s.name, s.ip, s.port,
+            "  · #{} {}  modules={{strategies={}, orders={}}}",
+            s.id, s.name,
             s.modules.listener_strategies, s.modules.listener_orders
         );
     }
