@@ -7,10 +7,11 @@
 use chrono::{DateTime, TimeZone, Utc};
 use moonproto::state::Order;
 use postgres::Client;
+use rust_decimal::Decimal;
 
 pub fn upsert(client: &mut Client, server_id: i32, order: &Order) -> anyhow::Result<()> {
     let uid = order.uid as i64;
-    let strat_id_str = format!("{}", order.strat_id); // u64 → numeric via SQL cast
+    let strat_id = Decimal::from(order.strat_id);
     let status_code = order.status.0 as i32;
 
     let buy_date     = delphi_to_utc(order.buy_order.open_time);
@@ -33,7 +34,7 @@ pub fn upsert(client: &mut Client, server_id: i32, order: &Order) -> anyhow::Res
             quantity, buy_price, sell_price, spent_btc, gained_btc, profit_btc,
             sell_reason, buy_date, sell_set_date, close_date, updated_at
          ) VALUES (
-            $1, $2, $3, $4::numeric, $5, $6, $7,
+            $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11, $12, $13,
             $14, $15, $16, $17, NOW()
          )
@@ -55,7 +56,7 @@ pub fn upsert(client: &mut Client, server_id: i32, order: &Order) -> anyhow::Res
             close_date   = COALESCE(EXCLUDED.close_date, orders.close_date),
             updated_at   = NOW()",
         &[
-            &server_id, &uid, &order.market_name, &strat_id_str,
+            &server_id, &uid, &order.market_name, &strat_id,
             &order.emulator_mode, &order.is_short, &status_code,
             &order.buy_order.quantity, &order.buy_price, &order.sell_price,
             &spent_btc, &gained_btc, &profit_btc,

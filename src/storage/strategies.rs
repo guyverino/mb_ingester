@@ -10,6 +10,7 @@
 
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use postgres::Client;
+use rust_decimal::Decimal;
 use serde_json::{Map, Value};
 
 use moonproto::commands::strategy_serializer::{FieldValue, StrategySnapshot};
@@ -23,19 +24,18 @@ pub fn upsert_snapshot(
     let signal_type = extract_string(snap, "SignalType");
     let active = extract_int(snap, "Active").unwrap_or(0) as i32;
 
-    // u64 → строка → SQL ::numeric. Безопасно для значений > i64::MAX.
-    let moonbot_id_str = format!("{}", snap.strategy_id);
+    let moonbot_id = Decimal::from(snap.strategy_id);
 
     let row = client.query_one(
         "INSERT INTO strategies (server_id, moonbot_id, name, signal_type, active, updated_at) \
-         VALUES ($1, $2::numeric, $3, $4, $5, NOW()) \
+         VALUES ($1, $2, $3, $4, $5, NOW()) \
          ON CONFLICT (server_id, moonbot_id) DO UPDATE SET \
             name        = EXCLUDED.name, \
             signal_type = COALESCE(EXCLUDED.signal_type, strategies.signal_type), \
             active      = EXCLUDED.active, \
             updated_at  = NOW() \
          RETURNING id",
-        &[&server_id, &moonbot_id_str, &name, &signal_type, &active],
+        &[&server_id, &moonbot_id, &name, &signal_type, &active],
     )?;
     let strategy_id: i32 = row.get(0);
 

@@ -21,6 +21,8 @@ moonproto = { git = "ssh://git@github.com/Moonbot-Tech/MoonProtoBeta.git", branc
 postgres = { version = "0.19", features = [
     "with-serde_json-1", "with-chrono-0_4"
 ] }
+# db-postgres feature даёт impl ToSql/FromSql для Decimal — нужен для NUMERIC колонок.
+rust_decimal = { version = "1", features = ["db-postgres"] }
 
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
