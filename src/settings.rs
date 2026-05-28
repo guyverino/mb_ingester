@@ -87,6 +87,7 @@ pub fn get(key: &str) -> Option<String> {
     c.values.get(key).cloned()
 }
 
+#[allow(dead_code)]
 pub fn get_str(key: &str, default: &str) -> String {
     get(key).unwrap_or_else(|| default.to_string())
 }
