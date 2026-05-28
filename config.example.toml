@@ -1,0 +1,5 @@
+# mb_ingester — minimal runtime config.
+# Серверы и параметры — в БД (servers, app_settings).
+
+[db]
+url = "postgres://postgres:PASSWORD@localhost:5432/mb_ingester"

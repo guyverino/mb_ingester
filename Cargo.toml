@@ -1,0 +1,37 @@
+[package]
+name = "mb_ingester"
+version = "0.1.0"
+edition = "2021"
+description = "Moonbot data ingester via MoonProto — strategies + orders → PostgreSQL"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/guyverino/mb_ingester"
+readme = "README.md"
+keywords = ["moonbot", "trading", "postgres", "ingester"]
+
+[[bin]]
+name = "mb_ingester"
+path = "src/main.rs"
+
+[dependencies]
+# MoonProto-протокол — Rust-библиотека от Moonbot-Tech.
+# Локальный путь — пакет приватный. После публикации на crates.io можно
+# заменить на регистр-зависимость.
+moonproto = { path = "../../MoonProtoBeta" }
+
+postgres = { version = "0.19", features = [
+    "with-serde_json-1", "with-chrono-0_4"
+] }
+
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+dotenvy = "0.15"
+
+[profile.release]
+lto = true
+codegen-units = 1
