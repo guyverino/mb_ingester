@@ -14,9 +14,9 @@ path = "src/main.rs"
 
 [dependencies]
 # MoonProto-протокол — Rust-библиотека от Moonbot-Tech.
-# Локальный путь — пакет приватный. После публикации на crates.io можно
-# заменить на регистр-зависимость.
-moonproto = { path = "../../MoonProtoBeta" }
+# Приватный репо, доступ по SSH-ключу. Пин коммита — в Cargo.lock.
+# Чтобы подтянуть свежие коммиты:  cargo update -p moonproto
+moonproto = { git = "ssh://git@github.com/Moonbot-Tech/MoonProtoBeta.git", branch = "main" }
 
 postgres = { version = "0.19", features = [
     "with-serde_json-1", "with-chrono-0_4"
