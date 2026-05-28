@@ -141,10 +141,8 @@ fn handle_event(
             if let Some(snap) = client.snapshot() {
                 if let Some(order) = snap.orders().get(*uid) {
                     storage::orders::upsert(sql, server.id, order)?;
-                    tracing::debug!(
-                        "[{}] order created uid={uid} coin={} strat={}",
-                        server.name, order.market_name, order.strat_id
-                    );
+                    // Created обычно приходит со статусом BuySet (placed, ждёт fill).
+                    // В лог не пишем — увидим как Updated→BuyDone когда биржа заполнит.
                 }
             }
         }
@@ -152,10 +150,21 @@ fn handle_event(
             if let Some(snap) = client.snapshot() {
                 if let Some(order) = snap.orders().get(*uid) {
                     storage::orders::upsert(sql, server.id, order)?;
-                    tracing::debug!(
-                        "[{}] order updated uid={uid} coin={} status={}",
-                        server.name, order.market_name, order.status.0
-                    );
+                    // В лог только реальные исполнения: 4 = BuyDone (купили),
+                    // 8 = SellDone (продали). Остальное в БД пишется, но в лог нет.
+                    match order.status.0 {
+                        4 => tracing::debug!(
+                            "[{}] BUY  uid={uid} coin={} price={} qty={}",
+                            server.name, order.market_name,
+                            order.buy_price, order.buy_order.quantity
+                        ),
+                        8 => tracing::debug!(
+                            "[{}] SELL uid={uid} coin={} price={} btc={}",
+                            server.name, order.market_name,
+                            order.sell_price, order.sell_order.total_btc
+                        ),
+                        _ => {}
+                    }
                 }
             }
         }
