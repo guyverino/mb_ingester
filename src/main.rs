@@ -84,9 +84,13 @@ fn init_logging() -> WorkerGuard {
     let file_appender = tracing_appender::rolling::daily(&log_dir, "mb_ingester.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
+    // moonproto::crypted=error глушит спам "replay/duplicate detected" —
+    // нормальный UDP-шум, протокол сам дедуплицирует. Если нужно отлаживать
+    // транспорт — RUST_LOG=info,moonproto::crypted=debug.
+    let default_filter = "info,moonproto=info,mb_ingester=debug,moonproto::crypted=error";
     let file_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,moonproto=info,mb_ingester=debug"));
-    let stderr_filter = EnvFilter::new("warn");
+        .unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let stderr_filter = EnvFilter::new("warn,moonproto::crypted=error");
 
     let file_layer = fmt::layer()
         .with_target(true)
