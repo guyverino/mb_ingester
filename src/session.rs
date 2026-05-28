@@ -125,24 +125,43 @@ fn handle_event(
                 server.name
             );
         }
-        Event::Strat(_) if server.modules.listener_strategies => {
+        Event::Strat(strat_evt) if server.modules.listener_strategies => {
             if let Some(snap) = client.snapshot() {
-                for s in snap.strategy_snapshot_vec() {
-                    storage::strategies::upsert_snapshot(sql, server.id, &s)?;
+                let strats = snap.strategy_snapshot_vec();
+                for s in &strats {
+                    storage::strategies::upsert_snapshot(sql, server.id, s)?;
                 }
+                tracing::debug!(
+                    "[{}] strat event: {:?} → re-upserted {} strategies",
+                    server.name, std::mem::discriminant(strat_evt), strats.len()
+                );
             }
         }
-        Event::Order(OrderEvent::Created(uid)) | Event::Order(OrderEvent::Updated(uid))
-            if server.modules.listener_orders =>
-        {
+        Event::Order(OrderEvent::Created(uid)) if server.modules.listener_orders => {
             if let Some(snap) = client.snapshot() {
                 if let Some(order) = snap.orders().get(*uid) {
                     storage::orders::upsert(sql, server.id, order)?;
+                    tracing::debug!(
+                        "[{}] order created uid={uid} coin={} strat={}",
+                        server.name, order.market_name, order.strat_id
+                    );
+                }
+            }
+        }
+        Event::Order(OrderEvent::Updated(uid)) if server.modules.listener_orders => {
+            if let Some(snap) = client.snapshot() {
+                if let Some(order) = snap.orders().get(*uid) {
+                    storage::orders::upsert(sql, server.id, order)?;
+                    tracing::debug!(
+                        "[{}] order updated uid={uid} coin={} status={}",
+                        server.name, order.market_name, order.status.0
+                    );
                 }
             }
         }
         Event::Order(OrderEvent::Removed(uid)) if server.modules.listener_orders => {
             storage::orders::delete(sql, server.id, *uid)?;
+            tracing::debug!("[{}] order removed uid={uid}", server.name);
         }
         Event::Order(OrderEvent::Snapshot) if server.modules.listener_orders => {
             if let Some(snap) = client.snapshot() {
@@ -151,12 +170,14 @@ fn handle_event(
                     uids.push(order.uid);
                     storage::orders::upsert(sql, server.id, order)?;
                 }
+                let mut removed = 0usize;
                 if settings::get_bool("orders_sync_on_snapshot", true) {
-                    let removed = storage::orders::sync_snapshot(sql, server.id, uids)?;
-                    if removed > 0 {
-                        tracing::debug!("[{}] orders snapshot removed {removed} stale rows", server.name);
-                    }
+                    removed = storage::orders::sync_snapshot(sql, server.id, uids.clone())?;
                 }
+                tracing::info!(
+                    "[{}] orders snapshot: {} active, {} stale removed",
+                    server.name, uids.len(), removed
+                );
             }
         }
         _ => {}
