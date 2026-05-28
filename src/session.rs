@@ -95,19 +95,23 @@ fn initial_sync(
     }
 
     if server.modules.listener_orders {
-        let mut uids = Vec::new();
+        // Сохраняем только ордера которые прошли BuyDone (статус >= 4),
+        // т.е. имели реальное исполнение. BuySet/BuyFail/BuyCancel в журнал
+        // не пишем — это не сделки.
         let mut ok = 0usize;
+        let mut skipped = 0usize;
         for order in snap.orders().iter() {
-            uids.push(order.uid);
+            if order.status.0 < 4 {
+                skipped += 1;
+                continue;
+            }
             match storage::orders::upsert(sql, server.id, order) {
                 Ok(_) => ok += 1,
                 Err(e) => tracing::warn!("[{}] orders upsert failed (uid={}): {e:#}", server.name, order.uid),
             }
         }
-        if settings::get_bool("orders_sync_on_snapshot", true) {
-            let _ = storage::orders::sync_snapshot(sql, server.id, uids.clone());
-        }
-        tracing::info!("[{}] initial orders synced: {}/{}", server.name, ok, uids.len());
+        tracing::info!("[{}] initial orders synced: {} executed, {} skipped (not filled)",
+            server.name, ok, skipped);
     }
     Ok(())
 }
@@ -137,21 +141,24 @@ fn handle_event(
                 );
             }
         }
-        Event::Order(OrderEvent::Created(uid)) if server.modules.listener_orders => {
-            if let Some(snap) = client.snapshot() {
-                if let Some(order) = snap.orders().get(*uid) {
-                    storage::orders::upsert(sql, server.id, order)?;
-                    // Created обычно приходит со статусом BuySet (placed, ждёт fill).
-                    // В лог не пишем — увидим как Updated→BuyDone когда биржа заполнит.
-                }
-            }
+        // БД — это журнал реальных сделок, не снимок активных ордеров.
+        // Пишем только когда ордер прошёл BuyDone (статус >= 4), то есть
+        // реально исполнился. Created/Removed и промежуточные изменения
+        // игнорируем — это life-cycle активного ордера, нас интересует факт сделки.
+        Event::Order(OrderEvent::Created(_)) if server.modules.listener_orders => {
+            // Игнорируем — ордер только что выставлен на биржу, ещё не исполнен.
+            // Увидим его как Updated когда статус дойдёт до BuyDone.
         }
         Event::Order(OrderEvent::Updated(uid)) if server.modules.listener_orders => {
             if let Some(snap) = client.snapshot() {
                 if let Some(order) = snap.orders().get(*uid) {
+                    if order.status.0 < 4 {
+                        // Ордер ещё не исполнен (BuySet/BuyFail/BuyCancel) — пропускаем.
+                        return Ok(());
+                    }
                     storage::orders::upsert(sql, server.id, order)?;
-                    // В лог только реальные исполнения: 4 = BuyDone (купили),
-                    // 8 = SellDone (продали). Остальное в БД пишется, но в лог нет.
+                    // В лог только 4 (BuyDone) и 8 (SellDone). Остальные после-исполненные
+                    // (SellSet/SellFail/SellCancel/SellAlmostDone) в БД пишутся, в лог нет.
                     match order.status.0 {
                         4 => tracing::debug!(
                             "[{}] BUY  uid={uid} coin={} price={} qty={}",
@@ -168,24 +175,25 @@ fn handle_event(
                 }
             }
         }
-        Event::Order(OrderEvent::Removed(uid)) if server.modules.listener_orders => {
-            storage::orders::delete(sql, server.id, *uid)?;
-            tracing::debug!("[{}] order removed uid={uid}", server.name);
+        Event::Order(OrderEvent::Removed(_)) if server.modules.listener_orders => {
+            // Игнорируем — мы не зеркалим список активных ордеров, мы храним
+            // журнал реальных сделок. Запись остаётся в БД навсегда.
         }
         Event::Order(OrderEvent::Snapshot) if server.modules.listener_orders => {
             if let Some(snap) = client.snapshot() {
-                let mut uids = Vec::new();
+                let mut ok = 0usize;
+                let mut skipped = 0usize;
                 for order in snap.orders().iter() {
-                    uids.push(order.uid);
+                    if order.status.0 < 4 {
+                        skipped += 1;
+                        continue;
+                    }
                     storage::orders::upsert(sql, server.id, order)?;
-                }
-                let mut removed = 0usize;
-                if settings::get_bool("orders_sync_on_snapshot", true) {
-                    removed = storage::orders::sync_snapshot(sql, server.id, uids.clone())?;
+                    ok += 1;
                 }
                 tracing::info!(
-                    "[{}] orders snapshot: {} active, {} stale removed",
-                    server.name, uids.len(), removed
+                    "[{}] orders snapshot: {} executed upserted, {} skipped (not filled)",
+                    server.name, ok, skipped
                 );
             }
         }

@@ -96,6 +96,7 @@ pub fn get_int(key: &str, default: i64) -> i64 {
     get(key).and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
+#[allow(dead_code)]
 pub fn get_bool(key: &str, default: bool) -> bool {
     get(key)
         .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(),

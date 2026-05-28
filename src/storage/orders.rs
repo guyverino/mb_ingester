@@ -67,33 +67,6 @@ pub fn upsert(client: &mut Client, server_id: i32, order: &Order) -> anyhow::Res
     Ok(())
 }
 
-pub fn delete(client: &mut Client, server_id: i32, uid: u64) -> anyhow::Result<()> {
-    client.execute(
-        "DELETE FROM orders WHERE server_id = $1 AND id = $2",
-        &[&server_id, &(uid as i64)],
-    )?;
-    Ok(())
-}
-
-/// Удалить все ордера сервера, которых нет в текущем snapshot.
-/// Включать через app_setting `orders_sync_on_snapshot`.
-pub fn sync_snapshot(
-    client: &mut Client,
-    server_id: i32,
-    active_uids: impl IntoIterator<Item = u64>,
-) -> anyhow::Result<usize> {
-    let active: Vec<i64> = active_uids.into_iter().map(|u| u as i64).collect();
-    if active.is_empty() {
-        let n = client.execute("DELETE FROM orders WHERE server_id = $1", &[&server_id])?;
-        return Ok(n as usize);
-    }
-    let n = client.execute(
-        "DELETE FROM orders WHERE server_id = $1 AND id <> ALL($2)",
-        &[&server_id, &active],
-    )?;
-    Ok(n as usize)
-}
-
 // ── Delphi-time → UTC ──────────────────────────────────────────
 
 const DELPHI_UNIX_EPOCH: f64 = 25569.0; // дни между 1899-12-30 и 1970-01-01
