@@ -17,6 +17,7 @@ pub fn connect_and_migrate(url: &str) -> anyhow::Result<Client> {
         ("004_strategies_wide", include_str!("../migrations/004_strategies_wide.sql")),
         ("005_orders_strategy_version_link", include_str!("../migrations/005_orders_strategy_version_link.sql")),
         ("006_parameters", include_str!("../migrations/006_parameters.sql")),
+        ("007_parameters_raw", include_str!("../migrations/007_parameters_raw.sql")),
     ];
 
     for (name, sql) in migrations {
