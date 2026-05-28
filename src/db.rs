@@ -4,16 +4,24 @@ use postgres::{Client, NoTls};
 
 use crate::config::{DbServer, ServerModules};
 
-/// Подключение + автоприменение `migrations/001_initial.sql`.
-/// Скрипт идемпотентный (CREATE … IF NOT EXISTS + ON CONFLICT DO NOTHING).
+/// Подключение + автоприменение миграций в порядке `migrations/NNN_*.sql`.
+/// Все скрипты идемпотентны (CREATE … IF NOT EXISTS + sentinel-проверки).
 pub fn connect_and_migrate(url: &str) -> anyhow::Result<Client> {
     let mut client = Client::connect(url, NoTls)
         .map_err(|e| anyhow::anyhow!("DB connect failed: {e}"))?;
-    let sql = include_str!("../migrations/001_initial.sql");
-    client
-        .batch_execute(sql)
-        .map_err(|e| anyhow::anyhow!("migration failed: {e}"))?;
-    tracing::info!("DB migrations applied");
+
+    let migrations: &[(&str, &str)] = &[
+        ("001_initial", include_str!("../migrations/001_initial.sql")),
+        ("002_orders_wide", include_str!("../migrations/002_orders_wide.sql")),
+    ];
+
+    for (name, sql) in migrations {
+        client
+            .batch_execute(sql)
+            .map_err(|e| anyhow::anyhow!("migration {name} failed: {e}"))?;
+        tracing::debug!("applied migration {name}");
+    }
+    tracing::info!("DB migrations applied ({} files)", migrations.len());
     Ok(client)
 }
 

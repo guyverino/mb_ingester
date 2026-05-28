@@ -105,34 +105,9 @@ CREATE TABLE IF NOT EXISTS strategy_versions (
 CREATE INDEX IF NOT EXISTS strategy_versions_date ON strategy_versions (strategy_id, version_date DESC);
 
 -- ────────────────────────────────────────────────────────────────
--- orders: торговые ордера от Moonbot
+-- orders: см. 002_orders_wide.sql (полная схема под структуру Order
+-- из moonproto, миграция идемпотентна через sentinel).
 -- ────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS orders (
-    server_id      INTEGER    NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    id             BIGINT     NOT NULL,                 -- MoonProto Order.uid
-    coin           TEXT,                                 -- market_name
-    strategy_id    NUMERIC,                              -- Moonbot Order.strat_id
-    emulator       BOOLEAN,
-    is_short       BOOLEAN,
-    status         INTEGER,
-    quantity       DOUBLE PRECISION,
-    buy_price      DOUBLE PRECISION,
-    sell_price     DOUBLE PRECISION,
-    spent_btc      DOUBLE PRECISION,
-    gained_btc     DOUBLE PRECISION,
-    profit_btc     DOUBLE PRECISION,
-    sell_reason    TEXT,
-    buy_date       TIMESTAMPTZ,
-    sell_set_date  TIMESTAMPTZ,
-    close_date     TIMESTAMPTZ,
-    first_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (server_id, id)
-);
-
-CREATE INDEX IF NOT EXISTS orders_strategy ON orders (server_id, strategy_id);
-CREATE INDEX IF NOT EXISTS orders_close_date ON orders (close_date DESC) WHERE close_date IS NOT NULL;
-CREATE INDEX IF NOT EXISTS orders_market ON orders (coin);
 
 -- ────────────────────────────────────────────────────────────────
 -- Seed: каталог встроенных модулей и их default-настроек
@@ -156,8 +131,6 @@ INSERT INTO app_settings (key, value, description, module) VALUES
 -- listener_orders
 ('orders_subscribe_snapshot', 'true',
  'Запросить первичный AllStatuses-snapshot при старте сессии.', 'listener_orders'),
-('orders_sync_on_snapshot', 'true',
- 'При получении Order::Snapshot удалять из БД ордера, отсутствующие в snapshot.', 'listener_orders'),
 -- listener_strategies
 ('strategies_subscribe_schema', 'true',
  'Запрашивать live StratSchema от сервера во время Init.', 'listener_strategies'),
