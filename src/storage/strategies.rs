@@ -22,24 +22,58 @@ pub fn upsert_snapshot(
 ) -> anyhow::Result<i32> {
     let name = extract_string(snap, "StrategyName").unwrap_or_default();
     let signal_type = extract_string(snap, "SignalType");
-    // `checked` — raw UI checkbox state. `is_active` — Delphi-equivalent
-    // вычисление для нашего режима (UsingMoonProto). См. types.rs:355.
+    // Поля прямо из структуры:
     let checked = snap.checked;
+    let strategy_ver = snap.strategy_ver;
+    let last_date_ms = snap.last_date as i64;
+    let kind = snap.kind as i16;
+    let path = snap.path.clone();
+    // Convenience-методы (внутри читают snap.fields):
     let is_active = snap.is_active(StrategyActiveMode::UsingMoonProto);
+    let auto_buy = snap.auto_buy();
+    let can_auto_buy = snap.can_auto_buy();
+    let run_detect_on_kernel = snap.run_detect_on_kernel();
+    let sell_from_asset = snap.sell_from_asset();
+    let short = snap.is_short();
+    let sell_price_field = snap.sell_price_field();
 
     let moonbot_id = Decimal::from(snap.strategy_id);
 
     let row = client.query_one(
-        "INSERT INTO strategies (server_id, moonbot_id, name, signal_type, checked, is_active, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, NOW()) \
-         ON CONFLICT (server_id, moonbot_id) DO UPDATE SET \
-            name        = EXCLUDED.name, \
-            signal_type = COALESCE(EXCLUDED.signal_type, strategies.signal_type), \
-            checked     = EXCLUDED.checked, \
-            is_active   = EXCLUDED.is_active, \
-            updated_at  = NOW() \
+        "INSERT INTO strategies (
+            server_id, moonbot_id, name, signal_type,
+            checked, is_active, strategy_ver, last_date_ms, kind, path,
+            auto_buy, can_auto_buy, run_detect_on_kernel, sell_from_asset,
+            short, sell_price_field, updated_at
+         ) VALUES (
+            $1, $2, $3, $4,
+            $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14,
+            $15, $16, NOW()
+         )
+         ON CONFLICT (server_id, moonbot_id) DO UPDATE SET
+            name                 = EXCLUDED.name,
+            signal_type          = COALESCE(EXCLUDED.signal_type, strategies.signal_type),
+            checked              = EXCLUDED.checked,
+            is_active            = EXCLUDED.is_active,
+            strategy_ver         = EXCLUDED.strategy_ver,
+            last_date_ms         = EXCLUDED.last_date_ms,
+            kind                 = EXCLUDED.kind,
+            path                 = EXCLUDED.path,
+            auto_buy             = EXCLUDED.auto_buy,
+            can_auto_buy         = EXCLUDED.can_auto_buy,
+            run_detect_on_kernel = EXCLUDED.run_detect_on_kernel,
+            sell_from_asset      = EXCLUDED.sell_from_asset,
+            short                = EXCLUDED.short,
+            sell_price_field     = EXCLUDED.sell_price_field,
+            updated_at           = NOW()
          RETURNING id",
-        &[&server_id, &moonbot_id, &name, &signal_type, &checked, &is_active],
+        &[
+            &server_id, &moonbot_id, &name, &signal_type,
+            &checked, &is_active, &strategy_ver, &last_date_ms, &kind, &path,
+            &auto_buy, &can_auto_buy, &run_detect_on_kernel, &sell_from_asset,
+            &short, &sell_price_field,
+        ],
     )?;
     let strategy_id: i32 = row.get(0);
 
