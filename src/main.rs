@@ -15,13 +15,14 @@ mod storage;
 use std::thread;
 
 use anyhow::Context;
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use crate::config::AppConfig;
 
 fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
-    init_logging();
+    let _log_guard = init_logging();
 
     let cfg = AppConfig::load().context("config load failed")?;
     tracing::info!("loaded config: db={}", sanitize_url(&cfg.db.url));
@@ -69,13 +70,42 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn init_logging() {
-    let filter = EnvFilter::try_from_default_env()
+/// Инициализация tracing:
+///   * файл `logs/mb_ingester.YYYY-MM-DD` — дневная ротация, полный фильтр
+///   * stderr — только WARN/ERROR (терминал тихий, видны только проблемы)
+///
+/// Уровень логирования настраивается через `RUST_LOG` (env-filter синтаксис).
+/// Возвращаемый guard нужно держать живым на всё время работы программы,
+/// иначе buffered-запись в файл потеряется на shutdown.
+fn init_logging() -> WorkerGuard {
+    let log_dir = std::env::var("MB_INGESTER_LOG_DIR").unwrap_or_else(|_| "logs".into());
+    std::fs::create_dir_all(&log_dir).expect("create log dir");
+
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "mb_ingester.log");
+    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+
+    let file_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,moonproto=info,mb_ingester=debug"));
+    let stderr_filter = EnvFilter::new("warn");
+
+    let file_layer = fmt::layer()
+        .with_target(true)
+        .with_thread_names(true)
+        .with_ansi(false)
+        .with_writer(file_writer)
+        .with_filter(file_filter);
+
+    let stderr_layer = fmt::layer()
+        .with_target(true)
+        .with_thread_names(true)
+        .with_filter(stderr_filter);
+
     tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer().with_target(true).with_thread_names(true))
+        .with(file_layer)
+        .with(stderr_layer)
         .init();
+
+    guard
 }
 
 fn sanitize_url(url: &str) -> String {
